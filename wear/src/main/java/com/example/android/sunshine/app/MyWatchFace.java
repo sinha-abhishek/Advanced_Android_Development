@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
-package com.abhishek.wear.myapplication;
+package com.example.android.sunshine.app;
+
+
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -36,15 +38,21 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
-import android.text.format.DateFormat;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataMap;
+import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
 import java.lang.ref.WeakReference;
@@ -53,6 +61,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -118,6 +127,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
         java.text.DateFormat mDateFormat;
         Paint mMaxTempPaint;
         Paint mMinTempPaint;
+        Bitmap mIconBitmap;
 
         String maxTemp;
         String minTemp;
@@ -192,8 +202,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mMinTempPaint = createTextPaint(resources.getColor(R.color.digital_text));
 
             //testing code
-            minTemp = "10" + (char) 0x00B0;
-            maxTemp = "20" + (char) 0x00B0;
+//            minTemp = "10" + (char) 0x00B0;
+//            maxTemp = "20" + (char) 0x00B0;
 
             initFormats();
         }
@@ -221,6 +231,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
             super.onVisibilityChanged(visible);
 
             if (visible) {
+                mGoogleApiClient.connect();
                 registerReceiver();
 
                 // Update time zone in case it changed while we weren't visible.
@@ -228,6 +239,10 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 invalidate();
             } else {
                 unregisterReceiver();
+                if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+                    Wearable.DataApi.removeListener(mGoogleApiClient, this);
+                    mGoogleApiClient.disconnect();
+                }
             }
 
             // Whether the timer should be running depends on whether we're visible (as well as
@@ -304,6 +319,9 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 mAmbient = inAmbientMode;
                 if (mLowBitAmbient) {
                     mTextPaint.setAntiAlias(!inAmbientMode);
+                    mDayPaint.setAntiAlias(!inAmbientMode);
+                    mMinTempPaint.setAntiAlias(!inAmbientMode);
+                    mMaxTempPaint.setAntiAlias(!inAmbientMode);
                 }
                 invalidate();
             }
@@ -330,8 +348,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 case TAP_TYPE_TAP:
                     // The user has completed the tap gesture.
                     // TODO: Add code to handle the tap gesture.
-                    Toast.makeText(getApplicationContext(), R.string.message, Toast.LENGTH_SHORT)
-                            .show();
+//                    Toast.makeText(getApplicationContext(), R.string.message, Toast.LENGTH_SHORT)
+//                            .show();
                     break;
             }
             invalidate();
@@ -344,8 +362,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
             //mDateFormat.setCalendar(mCalendar);
         }
 
-        private Bitmap createWeatherIconBitmap() {
-            Drawable b = getResources().getDrawable(R.drawable.art_clear);
+        private Bitmap createWeatherIconBitmap(int resource) {
+            Drawable b = getResources().getDrawable(resource);
             Bitmap icon = ((BitmapDrawable) b).getBitmap();
             float scaledWidth = (mMaxTempPaint.getTextSize() / icon.getHeight()) * icon.getWidth();
             Bitmap bmp = Bitmap.createScaledBitmap(icon, (int) scaledWidth * 2, (int) mMaxTempPaint.getTextSize() * 2, true);
@@ -385,24 +403,37 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
             canvas.drawText(text, timeOffsetX, timeOffsetY, mTextPaint);
             canvas.drawLine(bounds.centerX() - 20, bounds.centerY(), bounds.centerX() + 20, bounds.centerY(), mDayPaint);
-            if (maxTemp != null) {
-                float xPos = bounds.centerX() + mPaddingRight;
-                float yPos = bounds.centerY() + mPaddingBottom;
-                canvas.drawText(maxTemp, xPos, yPos, mMaxTempPaint);
+            if (!mAmbient) {
+                if (maxTemp != null) {
+                    float xPos = bounds.centerX() + mPaddingRight;
+                    float yPos = bounds.centerY() + mPaddingBottom;
+                    canvas.drawText(maxTemp, xPos, yPos, mMaxTempPaint);
+                }
+                if (minTemp != null) {
+                    float xPos = bounds.centerX() + mPaddingRight + mMaxTempPaint.measureText(maxTemp);
+                    float yPos = bounds.centerY() + mPaddingBottom;
+                    canvas.drawText(minTemp, xPos, yPos, mMinTempPaint);
+                }
+            } else {
+                if (maxTemp != null) {
+                    float xPos = bounds.centerX()  - mMaxTempPaint.measureText(maxTemp) ;//+ mPaddingRight;
+                    float yPos = bounds.centerY() + mPaddingBottom;
+                    canvas.drawText(maxTemp, xPos, yPos, mMaxTempPaint);
+                }
+                if (minTemp != null) {
+                    float xPos = bounds.centerX() + mPaddingRight;
+                    float yPos = bounds.centerY() + mPaddingBottom;
+                    canvas.drawText(minTemp, xPos, yPos, mMinTempPaint);
+                }
             }
-            if (minTemp != null) {
-                float xPos = bounds.centerX() + mPaddingRight + mMaxTempPaint.measureText(maxTemp);
-                float yPos = bounds.centerY() + mPaddingBottom;
-                canvas.drawText(minTemp, xPos, yPos, mMinTempPaint);
-            }
-            if (minTemp == null && maxTemp == null) {
+            if (!mAmbient && minTemp == null && maxTemp == null) {
                 float xPos = bounds.centerX() ;
                 float yPos = bounds.height() - mTempYPadding;
-                canvas.drawText("Weather info missing", xPos, yPos, mMinTempPaint);
+                canvas.drawText("trying...", xPos, yPos, mMinTempPaint);
             }
 
-            Bitmap bmp = createWeatherIconBitmap();
-            if (!mAmbient) {
+            Bitmap bmp = mIconBitmap;
+            if (!mAmbient && bmp != null) {
                 float yPos = bounds.centerY() + mPaddingBottom - bmp.getHeight()/2;
                 float highTextLen = mMaxTempPaint.measureText(maxTemp);
                 float iconXOffset = bounds.centerX() - (mPaddingLeft + bmp.getWidth());
@@ -445,7 +476,23 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
         @Override
         public void onConnected(@Nullable Bundle bundle) {
+            Wearable.DataApi.addListener(mGoogleApiClient, Engine.this);
 
+            PutDataMapRequest putDataMapRequest = PutDataMapRequest.create(WEATHER_PATH);
+            putDataMapRequest.getDataMap().putString(KEY_UUID, UUID.randomUUID().toString());
+            PutDataRequest request = putDataMapRequest.asPutDataRequest();
+
+            Wearable.DataApi.putDataItem(mGoogleApiClient, request)
+                    .setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                        @Override
+                        public void onResult(DataApi.DataItemResult dataItemResult) {
+                            if (!dataItemResult.getStatus().isSuccess()) {
+                                Log.d("OnResult", "Failed requesting weather data");
+                            } else {
+                                Log.d("onResult", "Successfully requested weather data");
+                            }
+                        }
+                    });
         }
 
         @Override
@@ -460,7 +507,66 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
         @Override
         public void onDataChanged(DataEventBuffer dataEventBuffer) {
+            for (DataEvent dataEvent : dataEventBuffer) {
+                if (dataEvent.getType() == DataEvent.TYPE_CHANGED) {
+                    DataMap dataMap = DataMapItem.fromDataItem(dataEvent.getDataItem()).getDataMap();
+                    String path = dataEvent.getDataItem().getUri().getPath();
+                    Log.d("onDataChanged", "Got path="+ path);
+                    if (path.equals(WEATHER_PATH)) {
+                        if (dataMap.containsKey(KEY_HIGH_TEMP)) {
+                            maxTemp = dataMap.getString(KEY_HIGH_TEMP);
+                            Log.d("onDataChanged", "High = " + maxTemp);
+                        } else {
+                            Log.d("onDataChanged", "No high");
+                        }
 
+                        if (dataMap.containsKey(KEY_LOW_TEMP)) {
+                            minTemp = dataMap.getString(KEY_LOW_TEMP);
+                            Log.d("onDataChanged", "Low = " + minTemp);
+                        } else {
+                            Log.d("onDataChanged", "No low");
+                        }
+
+                        if (dataMap.containsKey(KEY_WEATHER_ID)) {
+                            int weatherId = dataMap.getInt(KEY_WEATHER_ID);
+                            int resourceIcon = getIconForWeatherId(weatherId);
+                            mIconBitmap = createWeatherIconBitmap(resourceIcon);
+                        } else {
+                            Log.d("onDataChanged", "no weatherId?");
+                            mIconBitmap = null;
+                        }
+
+                        invalidate();
+                    }
+                }
+            }
         }
+    }
+
+    private int getIconForWeatherId(int weatherId) {
+        if (weatherId >= 200 && weatherId <= 232) {
+            return R.drawable.ic_storm;
+        } else if (weatherId >= 300 && weatherId <= 321) {
+            return R.drawable.ic_light_rain;
+        } else if (weatherId >= 500 && weatherId <= 504) {
+            return R.drawable.ic_rain;
+        } else if (weatherId == 511) {
+            return R.drawable.ic_snow;
+        } else if (weatherId >= 520 && weatherId <= 531) {
+            return R.drawable.ic_rain;
+        } else if (weatherId >= 600 && weatherId <= 622) {
+            return R.drawable.ic_snow;
+        } else if (weatherId >= 701 && weatherId <= 761) {
+            return R.drawable.ic_fog;
+        } else if (weatherId == 761 || weatherId == 781) {
+            return R.drawable.ic_storm;
+        } else if (weatherId == 800) {
+            return R.drawable.ic_clear;
+        } else if (weatherId == 801) {
+            return R.drawable.ic_light_clouds;
+        } else if (weatherId >= 802 && weatherId <= 804) {
+            return R.drawable.ic_cloudy;
+        }
+        return -1;
     }
 }

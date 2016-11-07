@@ -36,6 +36,12 @@ import com.example.android.sunshine.app.R;
 import com.example.android.sunshine.app.Utility;
 import com.example.android.sunshine.app.data.WeatherContract;
 import com.example.android.sunshine.app.muzei.WeatherMuzeiSource;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -49,6 +55,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.UUID;
 import java.util.Vector;
 import java.util.concurrent.ExecutionException;
 
@@ -77,6 +84,14 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     private static final int INDEX_MIN_TEMP = 2;
     private static final int INDEX_SHORT_DESC = 3;
 
+    public static final String WEATHER_PATH = "/weather";
+    private static final String WEATHER_DETAIL_PATH = "/weather-info";
+
+    private static final String KEY_UUID = "uuid";
+    private static final String KEY_HIGH_TEMP = "highTemp";
+    private static final String KEY_LOW_TEMP = "lowTemp";
+    private static final String KEY_WEATHER_ID = "weatherId";
+
     @Retention(RetentionPolicy.SOURCE)
     @IntDef({LOCATION_STATUS_OK, LOCATION_STATUS_SERVER_DOWN, LOCATION_STATUS_SERVER_INVALID,  LOCATION_STATUS_UNKNOWN, LOCATION_STATUS_INVALID})
     public @interface LocationStatus {}
@@ -87,8 +102,15 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public static final int LOCATION_STATUS_UNKNOWN = 3;
     public static final int LOCATION_STATUS_INVALID = 4;
 
+    private GoogleApiClient googleApiClient;
+
     public SunshineSyncAdapter(Context context, boolean autoInitialize) {
         super(context, autoInitialize);
+        if (googleApiClient == null) {
+            googleApiClient = new GoogleApiClient.Builder(context)
+                    .addApi(Wearable.API)
+                    .build();
+        }
     }
 
     @Override
@@ -202,6 +224,40 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             }
         }
         return;
+    }
+
+
+    public void sendDataToDevice(double high, double low, int weatherId) {
+        Log.d(LOG_TAG, "Sending Weather data");
+
+        if (googleApiClient == null) {
+            return;
+        }
+
+        googleApiClient.connect();
+
+        PutDataMapRequest putDataMapRequest = PutDataMapRequest.create(WEATHER_PATH);
+
+        putDataMapRequest.getDataMap().putString(KEY_UUID, UUID.randomUUID().toString());
+        putDataMapRequest.getDataMap().putString(KEY_HIGH_TEMP, Utility.formatTemperature(getContext(), high));
+        putDataMapRequest.getDataMap().putString(KEY_LOW_TEMP, Utility.formatTemperature(getContext(), low));
+        putDataMapRequest.getDataMap().putInt(KEY_WEATHER_ID, weatherId);
+
+        PutDataRequest request = putDataMapRequest.asPutDataRequest();
+
+        Log.d(LOG_TAG, "High:" + high + ", Low:" + low + ", Condition ID: " + weatherId);
+
+        Wearable.DataApi.putDataItem(googleApiClient, request)
+                .setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                    @Override
+                    public void onResult(DataApi.DataItemResult dataItemResult) {
+                        if (!dataItemResult.getStatus().isSuccess()) {
+                            Log.d(LOG_TAG, "Failed to send weather data");
+                        } else {
+                            Log.d(LOG_TAG, "Successfully sent weather data");
+                        }
+                    }
+                });
     }
 
     /**
@@ -337,6 +393,10 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 JSONObject temperatureObject = dayForecast.getJSONObject(OWM_TEMPERATURE);
                 high = temperatureObject.getDouble(OWM_MAX);
                 low = temperatureObject.getDouble(OWM_MIN);
+
+                if (i == 0) {
+                    sendDataToDevice(high, low, weatherId);
+                }
 
                 ContentValues weatherValues = new ContentValues();
 
