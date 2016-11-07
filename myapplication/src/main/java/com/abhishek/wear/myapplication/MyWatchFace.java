@@ -21,11 +21,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -113,6 +116,11 @@ public class MyWatchFace extends CanvasWatchFaceService {
         Date mDate;
         SimpleDateFormat mDayOfWeekFormat;
         java.text.DateFormat mDateFormat;
+        Paint mMaxTempPaint;
+        Paint mMinTempPaint;
+
+        String maxTemp;
+        String minTemp;
 
         //params for watch face data
 
@@ -139,8 +147,13 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 .addApi(Wearable.API)
                 .build();
 
-        float mXOffset;
-        float mYOffset;
+        float mTempYPadding;
+        float mTempXMinPadding;
+        float mTempXMaxPadding;
+        float mPaddingLeft;
+        float mPaddingRight;
+        float mPaddingTop;
+        float mPaddingBottom;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
@@ -159,7 +172,6 @@ public class MyWatchFace extends CanvasWatchFaceService {
                     .setAcceptsTapEvents(true)
                     .build());
             Resources resources = MyWatchFace.this.getResources();
-            mYOffset = resources.getDimension(R.dimen.digital_y_offset);
 
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.background));
@@ -172,6 +184,17 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
             mCalendar = Calendar.getInstance();
             mDate = new Date();
+
+            mMaxTempPaint = new Paint();
+            mMaxTempPaint = createTextPaint(resources.getColor(R.color.digital_text), BOLD_TYPEFACE);
+
+            mMinTempPaint = new Paint();
+            mMinTempPaint = createTextPaint(resources.getColor(R.color.digital_text));
+
+            //testing code
+            minTemp = "10" + (char) 0x00B0;
+            maxTemp = "20" + (char) 0x00B0;
+
             initFormats();
         }
 
@@ -182,9 +205,13 @@ public class MyWatchFace extends CanvasWatchFaceService {
         }
 
         private Paint createTextPaint(int textColor) {
+            return createTextPaint(textColor, NORMAL_TYPEFACE);
+        }
+
+        private Paint createTextPaint(int textColor, Typeface typeface) {
             Paint paint = new Paint();
             paint.setColor(textColor);
-            paint.setTypeface(NORMAL_TYPEFACE);
+            paint.setTypeface(typeface);
             paint.setAntiAlias(true);
             return paint;
         }
@@ -233,14 +260,29 @@ public class MyWatchFace extends CanvasWatchFaceService {
             // Load resources that have alternate values for round watches.
             Resources resources = MyWatchFace.this.getResources();
             boolean isRound = insets.isRound();
-            mXOffset = resources.getDimension(isRound
-                    ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
+            mPaddingTop = resources.getDimension(isRound ? R.dimen.top_padding_from_center_round : R.dimen.top_padding_from_center);
+            mPaddingBottom = resources.getDimension(isRound ? R.dimen.bottom_padding_from_center_round : R.dimen.bottom_padding_from_center);
+            mPaddingLeft = resources.getDimension(isRound ? R.dimen.left_padding_from_center_round : R.dimen.left_padding_from_center);
+            mPaddingRight = resources.getDimension(isRound ? R.dimen.right_padding_from_center_round : R.dimen.right_padding_from_center);
             float textSize = resources.getDimension(isRound
                     ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
 
+            float maxTextSize = resources.getDimension(R.dimen.temp_max_size);
+            float minTextSize = resources.getDimension(R.dimen.temp_min_size);
+
             mTextPaint.setTextSize(textSize);
+            mTextPaint.setTextAlign(Paint.Align.CENTER);
             mDayPaint.setTextSize(textSize/2);
             mDayPaint.setTextAlign(Paint.Align.CENTER);
+            mMinTempPaint.setTextSize(minTextSize);
+            mMaxTempPaint.setTextSize(maxTextSize);
+            mMaxTempPaint.setTextAlign(Paint.Align.CENTER);
+            mMinTempPaint.setTextAlign(Paint.Align.CENTER);
+
+            mTempXMaxPadding = resources.getDimension(R.dimen.temp_x_padding_max);
+            mTempXMinPadding = resources.getDimension(R.dimen.temp_x_padding_min);
+            mTempYPadding = resources.getDimension(isRound
+                    ? R.dimen.temp_y_padding_round : R.dimen.temp_y_padding);
         }
 
         @Override
@@ -302,6 +344,14 @@ public class MyWatchFace extends CanvasWatchFaceService {
             //mDateFormat.setCalendar(mCalendar);
         }
 
+        private Bitmap createWeatherIconBitmap() {
+            Drawable b = getResources().getDrawable(R.drawable.art_clear);
+            Bitmap icon = ((BitmapDrawable) b).getBitmap();
+            float scaledWidth = (mMaxTempPaint.getTextSize() / icon.getHeight()) * icon.getWidth();
+            Bitmap bmp = Bitmap.createScaledBitmap(icon, (int) scaledWidth * 2, (int) mMaxTempPaint.getTextSize() * 2, true);
+            return bmp;
+        }
+
         @Override
         public void onDraw(Canvas canvas, Rect bounds) {
             // Draw the background.
@@ -314,14 +364,15 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
             }
 
-            mYOffset = bounds.height() / 4;
-            mXOffset = bounds.centerX() / 2 ;
-
-            float dateOffsetY = mYOffset * 1.5f;
+            float timeOffsetY = bounds.centerY() - mPaddingTop ;
+            float timeOffsetX = bounds.centerX();
 
 
             String text = String.format("%d:%02d", mCalendar.get(Calendar.HOUR),
                     mCalendar.get(Calendar.MINUTE));
+
+            float dateOffsetY = timeOffsetY + 30;
+            float dateOffsetX = bounds.centerX();
 
             // Only render the day of week and date if there is no peek card, so they do not bleed
             // into each other in ambient mode.
@@ -329,10 +380,35 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 // Day of week
                 canvas.drawText(
                         mDayOfWeekFormat.format(mDate),
-                        mXOffset*2, dateOffsetY, mDayPaint);
+                        dateOffsetX, dateOffsetY, mDayPaint);
             }
 
-            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            canvas.drawText(text, timeOffsetX, timeOffsetY, mTextPaint);
+            canvas.drawLine(bounds.centerX() - 20, bounds.centerY(), bounds.centerX() + 20, bounds.centerY(), mDayPaint);
+            if (maxTemp != null) {
+                float xPos = bounds.centerX() + mPaddingRight;
+                float yPos = bounds.centerY() + mPaddingBottom;
+                canvas.drawText(maxTemp, xPos, yPos, mMaxTempPaint);
+            }
+            if (minTemp != null) {
+                float xPos = bounds.centerX() + mPaddingRight + mMaxTempPaint.measureText(maxTemp);
+                float yPos = bounds.centerY() + mPaddingBottom;
+                canvas.drawText(minTemp, xPos, yPos, mMinTempPaint);
+            }
+            if (minTemp == null && maxTemp == null) {
+                float xPos = bounds.centerX() ;
+                float yPos = bounds.height() - mTempYPadding;
+                canvas.drawText("Weather info missing", xPos, yPos, mMinTempPaint);
+            }
+
+            Bitmap bmp = createWeatherIconBitmap();
+            if (!mAmbient) {
+                float yPos = bounds.centerY() + mPaddingBottom - bmp.getHeight()/2;
+                float highTextLen = mMaxTempPaint.measureText(maxTemp);
+                float iconXOffset = bounds.centerX() - (mPaddingLeft + bmp.getWidth());
+                canvas.drawBitmap(bmp, iconXOffset, yPos, null);
+
+            }
         }
 
         /**
