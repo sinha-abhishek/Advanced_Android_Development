@@ -370,6 +370,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
             return bmp;
         }
 
+
+
         @Override
         public void onDraw(Canvas canvas, Rect bounds) {
             // Draw the background.
@@ -415,6 +417,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
                     canvas.drawText(minTemp, xPos, yPos, mMinTempPaint);
                 }
             } else {
+
                 if (maxTemp != null) {
                     float xPos = bounds.centerX()  - mMaxTempPaint.measureText(maxTemp) ;//+ mPaddingRight;
                     float yPos = bounds.centerY() + mPaddingBottom;
@@ -429,7 +432,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
             if (!mAmbient && minTemp == null && maxTemp == null) {
                 float xPos = bounds.centerX() ;
                 float yPos = bounds.height() - mTempYPadding;
-                canvas.drawText("trying...", xPos, yPos, mMinTempPaint);
+                canvas.drawText(getString(R.string.trying_text), xPos, yPos, mMinTempPaint);
             }
 
             Bitmap bmp = mIconBitmap;
